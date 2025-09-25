@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Instrumental Project Converter</title>
+  <link rel="stylesheet" href="styles.css"> 
+</head>
+<body>
+  <div>
+    <img src="instrumental.png", class="logo01">
+  </div>
+ <br><br> 
+
+  <div id="dropZone" class="drop-zone">
+    Drag your MIDI file here or click to select it
+  </div>
+  <input type="file" id="midiInput" accept=".midi,.mid" />
+
+  <label for="instrumentSelect">Instrument of the song:</label>
+  <select id="instrumentSelect">
+    <option value="harp">Harp / Piano</option>
+    <option value="bass">Bass</option>
+    <option value="bd">Bass Drum</option>
+    <option value="snare">Snare Drum</option>
+    <option value="hat">Hat</option>
+    <option value="bell">Bell</option>
+    <option value="flute">Flute</option>
+    <option value="chime">Chime</option>
+    <option value="guitar">Guitar</option>
+    <option value="xylophone">Xylophone</option>
+    <option value="iron_xylophone">Iron Xylophone</option>
+    <option value="cow_bell">Cow Bell</option>
+    <option value="didgeridoo">Didgeridoo</option>
+    <option value="bit">Bit</option>
+    <option value="banjo">Banjo</option>
+    <option value="pling">Pling</option>
+  </select>
+
+  <label>
+    <input type="checkbox" id="autoDetect" class="checkbox"/> Automatically detect instrument
+  </label>
+
+  <h2>Partiture Created:</h2>
+  <textarea id="outputArray" readonly class="outputArray"></textarea>
+  <img src="partiture.png" class="outputImg">
+  <button id="copyAll" class="copyButtom">Copiar Todo</button>
+
+
+  <script type="module">
+    import { Midi } from 'https://cdn.skypack.dev/@tonejs/midi';
+
+    const dropZone = document.getElementById('dropZone');
+    const midiInput = document.getElementById('midiInput');
+    const outputArray = document.getElementById('outputArray');
+    const instrumentSelect = document.getElementById('instrumentSelect');
+    const autoDetect = document.getElementById('autoDetect');
+    const copyAllBtn = document.getElementById('copyAll');
+
+    const noteBlockPitches = [
+      { note: "F#3", pitch: 0.5 }, { note: "G3", pitch: 0.5297 },
+      { note: "G#3", pitch: 0.5612 }, { note: "A3", pitch: 0.5946 },
+      { note: "A#3", pitch: 0.6299 }, { note: "B3", pitch: 0.6674 },
+      { note: "C4", pitch: 0.7071 }, { note: "C#4", pitch: 0.7492 },
+      { note: "D4", pitch: 0.7937 }, { note: "D#4", pitch: 0.8409 },
+      { note: "E4", pitch: 0.8909 }, { note: "F4", pitch: 0.9439 },
+      { note: "F#4", pitch: 1.0 }, { note: "G4", pitch: 1.0595 },
+      { note: "G#4", pitch: 1.1225 }, { note: "A4", pitch: 1.1892 },
+      { note: "A#4", pitch: 1.2599 }, { note: "B4", pitch: 1.3348 },
+      { note: "C5", pitch: 1.4142 }, { note: "C#5", pitch: 1.4983 },
+      { note: "D5", pitch: 1.5874 }, { note: "D#5", pitch: 1.6818 },
+      { note: "E5", pitch: 1.7818 }, { note: "F5", pitch: 1.8877 },
+      { note: "F#5", pitch: 2.0 }
+    ];
+
+    const instrumentMap = {
+      harp: 0, bass: 1, bd: 2, snare: 3, hat: 4,
+      bell: 5, flute: 6, chime: 7, guitar: 8,
+      xylophone: 9, iron_xylophone: 10, cow_bell: 11,
+      didgeridoo: 12, bit: 13, banjo: 14, pling: 15
+    };
+
+    dropZone.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      dropZone.classList.add('dragover');
+    });
+
+    dropZone.addEventListener('dragleave', () => {
+      dropZone.classList.remove('dragover');
+    });
+
+    dropZone.addEventListener('drop', (e) => {
+      e.preventDefault();
+      dropZone.classList.remove('dragover');
+      const file = e.dataTransfer.files[0];
+      if (file && file.name.endsWith('.mid') || file.name.endsWith('.midi')) {
+        processMidi(file);
+      } else {
+        alert('Solo se permiten archivos MIDI.');
+      }
+    });
+
+    dropZone.addEventListener('click', () => {
+      midiInput.click();
+    });
+
+    midiInput.addEventListener('change', (e) => {
+      const file = e.target.files[0];
+      processMidi(file);
+    });
+
+    copyAllBtn.addEventListener('click', () => {
+      outputArray.select();
+      navigator.clipboard.writeText(outputArray.value);
+      alert('¡Copiado al portapapeles!');
+    });
+
+    async function processMidi(file) {
+      const arrayBuffer = await file.arrayBuffer();
+      const midi = new Midi(arrayBuffer);
+
+      const noteGroups = {};
+
+      midi.tracks.forEach(track => {
+        track.notes.forEach(note => {
+          const tick = Math.round(note.time * 20);
+
+          let matched = noteBlockPitches.find(n => n.note === note.name);
+          let pitch = matched ? matched.pitch : Math.pow(2, (note.midi - 66) / 12);
+          pitch = Math.max(0.5, Math.min(pitch, 2.0));
+
+          let instrumentKey = instrumentSelect.value;
+
+          if (autoDetect.checked) {
+            const trackName = (track.name || '').toLowerCase();
+            if (note.midi < 45) instrumentKey = 'bass';
+            else if (trackName.includes('kick')) instrumentKey = 'bd';
+            else if (trackName.includes('snare')) instrumentKey = 'snare';
+            else if (trackName.includes('hat')) instrumentKey = 'hat';
+            else if (trackName.includes('bell')) instrumentKey = 'bell';
+            else if (trackName.includes('flute')) instrumentKey = 'flute';
+            else instrumentKey = 'harp';
+          }
+
+          const instrumentNum = instrumentMap[instrumentKey];
+
+          let pitchStr = (pitch === 0 || pitch === 1 || pitch === 2)
+            ? pitch.toString()
+            : pitch.toFixed(4);
+
+          const jsonNote = `{n:${instrumentNum},p:${pitchStr}}`;
+
+          if (!noteGroups[tick]) noteGroups[tick] = [];
+          noteGroups[tick].push(jsonNote);
+        });
+      });
+
+      const allTicks = Object.keys(noteGroups).map(Number).sort((a,b) => a-b);
+      const allGroups = [];
+      let lastTick = -1;
+
+      allTicks.forEach(tick => {
+        if (lastTick >= 0 && tick > lastTick + 1) {
+          const missingTicks = tick - lastTick - 1;
+          for (let i = 0; i < missingTicks; i++) allGroups.push(`{}`);
+        }
+
+        const notes = noteGroups[tick];
+        const group = notes.length > 1 ? `[${notes.join(",")}]` : notes[0];
+        allGroups.push(group);
+
+        lastTick = tick;
+      });
+
+      outputArray.value = `[${allGroups.join(",")}]`;
+    }
+  </script>
+</body>
+</html>
