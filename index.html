@@ -1,0 +1,1154 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Instrumental Project Converter</title>
+  <link rel="stylesheet" href="styles.css"> 
+</head>
+<body>
+
+<div class="container">
+
+    <img src="instrumental.png", class="logo01">
+
+    <div class="space">
+        
+    </div>
+    <div class="subtitle">
+        Convertidor de nbs para el datapack Instrumental Project
+    </div>
+
+    <!-- ARCHIVO -->
+    <div class="panel">
+
+        <h2>1. Archivo NBS</h2>
+
+        <div id="dropZone" class="drop-zone">
+            <strong>Arrastra tu archivo .NBS aquí</strong>
+            <br><br>
+            o haz clic para seleccionarlo
+        </div>
+
+        <input
+            type="file"
+            id="fileInput"
+            accept=".nbs"
+        >
+
+        <div id="fileName" class="file-name"></div>
+
+        <div id="status" class="status"></div>
+
+        <div class="stats">
+
+            <div class="stat">
+                <strong id="statTicks">0</strong>
+                Ticks
+            </div>
+
+            <div class="stat">
+                <strong id="statInstruments">0</strong>
+                Instrumentos
+            </div>
+        </div>
+
+    </div>
+
+    
+
+    <!-- SALIDA -->
+    <div class="panel">
+
+    
+        <h2>2. Resultado</h2>
+
+        <div></div>
+
+        <textarea
+            id="output"
+            readonly
+            placeholder="Aquí aparecerá el código generado..."
+        ></textarea>
+
+    
+
+        <div class="controls">
+
+            <button id="convertButton">
+                Convertir NBS
+            </button>
+
+            <button id="copyButton">
+                Copiar
+            </button>
+
+        </div>
+
+    </div>
+
+</div>
+
+
+<script>
+
+/* =========================================================
+   VARIABLES
+========================================================= */
+
+let currentSong = null;
+
+const VANILLA_INSTRUMENTS = {
+    0: "Piano",
+    1: "Contrabajo",
+    2: "Bombo",
+    3: "Caja",
+    4: "Click",
+    5: "Guitarra",
+    6: "Flauta",
+    7: "Campana",
+    8: "Carillón",
+    9: "Xilófono",
+    10: "Xilófono de hierro",
+    11: "Campana de vaca",
+    12: "Didgeridoo",
+    13: "Bit",
+    14: "Banjo",
+    15: "Pling"
+};
+
+
+
+
+/* =========================================================
+   ELEMENTOS
+========================================================= */
+
+const dropZone = document.getElementById("dropZone");
+const fileInput = document.getElementById("fileInput");
+const fileName = document.getElementById("fileName");
+const statusElement = document.getElementById("status");
+
+const output = document.getElementById("output");
+
+
+
+/* =========================================================
+   DRAG & DROP
+========================================================= */
+
+dropZone.addEventListener("click", () => {
+    fileInput.click();
+});
+
+
+fileInput.addEventListener("change", event => {
+
+    const file =
+        event.target.files[0];
+
+    if (file) {
+        loadNBS(file);
+    }
+
+});
+
+
+dropZone.addEventListener("dragover", event => {
+
+    event.preventDefault();
+
+    dropZone.classList.add("dragover");
+
+});
+
+
+dropZone.addEventListener("dragleave", () => {
+
+    dropZone.classList.remove("dragover");
+
+});
+
+
+dropZone.addEventListener("drop", event => {
+
+    event.preventDefault();
+
+    dropZone.classList.remove("dragover");
+
+    const file =
+        event.dataTransfer.files[0];
+
+    if (file) {
+        loadNBS(file);
+    }
+
+});
+
+
+/* =========================================================
+   READER NBS
+========================================================= */
+
+class NBSReader {
+
+    constructor(buffer) {
+
+        this.data =
+            new DataView(buffer);
+
+        this.offset = 0;
+
+    }
+
+
+    readByte() {
+
+        if (this.offset >= this.data.byteLength) {
+            throw new Error("Fin inesperado del archivo.");
+        }
+
+        return this.data.getUint8(
+            this.offset++
+        );
+
+    }
+
+
+    readSignedByte() {
+
+        if (this.offset >= this.data.byteLength) {
+            throw new Error("Fin inesperado del archivo.");
+        }
+
+        return this.data.getInt8(
+            this.offset++
+        );
+
+    }
+
+
+    readShort() {
+
+        if (this.offset + 2 > this.data.byteLength) {
+            throw new Error("Fin inesperado del archivo.");
+        }
+
+        const value =
+            this.data.getInt16(
+                this.offset,
+                true
+            );
+
+        this.offset += 2;
+
+        return value;
+    }
+
+
+    readUnsignedShort() {
+
+        if (this.offset + 2 > this.data.byteLength) {
+            throw new Error("Fin inesperado del archivo.");
+        }
+
+        const value =
+            this.data.getUint16(
+                this.offset,
+                true
+            );
+
+        this.offset += 2;
+
+        return value;
+    }
+
+
+    readInt() {
+
+        if (this.offset + 4 > this.data.byteLength) {
+            throw new Error("Fin inesperado del archivo.");
+        }
+
+        const value =
+            this.data.getInt32(
+                this.offset,
+                true
+            );
+
+        this.offset += 4;
+
+        return value;
+    }
+
+
+    readString() {
+
+        const length =
+            this.readInt();
+
+        if (length < 0 ||
+            this.offset + length > this.data.byteLength) {
+
+            throw new Error(
+                "Cadena inválida en el archivo NBS."
+            );
+
+        }
+
+        const bytes =
+            new Uint8Array(
+                this.data.buffer,
+                this.data.byteOffset + this.offset,
+                length
+            );
+
+        this.offset += length;
+
+        return new TextDecoder("utf-8").decode(bytes);
+    }
+
+
+    skip(bytes) {
+
+        this.offset += bytes;
+
+        if (this.offset > this.data.byteLength) {
+            throw new Error(
+                "Archivo NBS incompleto."
+            );
+        }
+
+    }
+
+
+    read() {
+
+        const first =
+            this.readUnsignedShort();
+
+        let version;
+        let vanillaInstrumentCount;
+        let songLength;
+        let layerCount;
+
+        /*
+            NBS moderno:
+
+            Los primeros 2 bytes son 0.
+        */
+
+        if (first === 0) {
+
+            version =
+                this.readByte();
+
+            vanillaInstrumentCount =
+                this.readByte();
+
+            /*
+                Versiones 1 y 2 no guardaban
+                songLength aquí.
+
+                Version 3+ sí.
+            */
+
+            if (version >= 3) {
+
+                songLength =
+                    this.readUnsignedShort();
+
+            } else {
+
+                songLength = 0;
+
+            }
+
+            layerCount =
+                this.readUnsignedShort();
+
+        }
+
+        /*
+            NBS clásico
+        */
+
+        else {
+
+            version = 0;
+
+            vanillaInstrumentCount = 10;
+
+            songLength = first;
+
+            layerCount =
+                this.readUnsignedShort();
+
+        }
+
+
+        const songName =
+            this.readString();
+
+        const author =
+            this.readString();
+
+        const originalAuthor =
+            this.readString();
+
+        const description =
+            this.readString();
+
+
+        const tempo =
+            this.readUnsignedShort() / 100;
+
+
+        /*
+            Campos restantes del header
+        */
+
+        this.readByte();       // autosave
+        this.readByte();       // autosave duration
+        this.readByte();       // time signature
+
+        this.readInt();        // minutes spent
+        this.readInt();        // left clicks
+        this.readInt();        // right clicks
+        this.readInt();        // blocks added
+        this.readInt();        // blocks removed
+
+        this.readString();     // MIDI/Schematic
+
+
+        /*
+            Versiones modernas incluyen loops.
+        */
+
+        let loop = false;
+        let maxLoopCount = 0;
+        let loopStartTick = 0;
+
+        if (version >= 1) {
+
+            loop =
+                this.readByte() !== 0;
+
+            maxLoopCount =
+                this.readByte();
+
+            loopStartTick =
+                this.readUnsignedShort();
+
+        }
+
+
+        /*
+            NOTAS
+        */
+
+        const notes = [];
+
+        let tick = -1;
+
+
+        while (true) {
+
+            const jumpTick =
+                this.readUnsignedShort();
+
+            if (jumpTick === 0) {
+                break;
+            }
+
+            tick += jumpTick;
+
+
+            let layer = -1;
+
+
+            while (true) {
+
+                const jumpLayer =
+                    this.readUnsignedShort();
+
+                if (jumpLayer === 0) {
+                    break;
+                }
+
+                layer += jumpLayer;
+
+
+                const instrument =
+                    this.readByte();
+
+                const key =
+                    this.readByte();
+
+
+                let velocity = 100;
+                let panning = 100;
+                let pitch = 0;
+
+
+                /*
+                    Los formatos modernos guardan
+                    velocidad, panning y pitch.
+
+                    El formato clásico solo tenía
+                    instrumento + key.
+                */
+
+                if (version >= 4) {
+
+                    velocity =
+                        this.readByte();
+
+                    panning =
+                        this.readByte();
+
+                    pitch =
+                        this.readShort();
+
+                }
+
+
+                notes.push({
+
+                    tick,
+                    layer,
+
+                    instrument,
+                    key,
+
+                    velocity,
+                    panning,
+                    pitch
+
+                });
+
+            }
+
+        }
+
+
+        /*
+            Capas
+        */
+
+        const layers = [];
+
+        /*
+            Si existe información de capas,
+            intentamos leerla.
+
+            No es necesaria para convertir las notas.
+        */
+
+        for (
+            let i = 0;
+            i < layerCount &&
+            this.offset < this.data.byteLength;
+            i++
+        ) {
+
+            try {
+
+                const name =
+                    this.readString();
+
+                let locked = false;
+                let volume = 100;
+                let stereo = 100;
+
+                /*
+                    Versiones modernas.
+                */
+
+                if (version >= 4) {
+
+                    locked =
+                        this.readByte() !== 0;
+
+                }
+
+                volume =
+                    this.readByte();
+
+                if (version >= 2) {
+
+                    stereo =
+                        this.readByte();
+
+                }
+
+                layers.push({
+
+                    name,
+                    locked,
+                    volume,
+                    stereo
+
+                });
+
+            } catch {
+
+                break;
+
+            }
+
+        }
+
+
+        /*
+            Instrumentos personalizados
+        */
+
+        const customInstruments = [];
+
+        if (this.offset < this.data.byteLength) {
+
+            const count =
+                this.readByte();
+
+
+            for (
+                let i = 0;
+                i < count;
+                i++
+            ) {
+
+                const name =
+                    this.readString();
+
+                const sound =
+                    this.readString();
+
+                const key =
+                    this.readByte();
+
+                const press =
+                    this.readByte();
+
+
+                customInstruments.push({
+
+                    name,
+                    sound,
+                    key,
+                    press
+
+                });
+
+            }
+
+        }
+
+
+        return {
+
+            version,
+            vanillaInstrumentCount,
+
+            songLength,
+            layerCount,
+
+            songName,
+            author,
+            originalAuthor,
+            description,
+
+            tempo,
+
+            loop,
+            maxLoopCount,
+            loopStartTick,
+
+            notes,
+            layers,
+
+            customInstruments
+
+        };
+
+    }
+
+}
+
+
+/* =========================================================
+   CARGAR NBS
+========================================================= */
+
+async function loadNBS(file) {
+
+    try {
+
+        if (
+            !file.name
+                .toLowerCase()
+                .endsWith(".nbs")
+        ) {
+
+            throw new Error(
+                "El archivo seleccionado no es un .NBS."
+            );
+
+        }
+
+
+        statusElement.textContent =
+            "Leyendo archivo...";
+
+
+        fileName.textContent =
+            file.name;
+
+
+        const buffer =
+            await file.arrayBuffer();
+
+
+        const reader =
+            new NBSReader(buffer);
+
+
+        currentSong =
+            reader.read();
+
+
+        updateStats();
+
+
+        statusElement.textContent =
+            ``;
+
+
+        convertSong();
+
+
+    } catch (error) {
+
+        console.error(error);
+
+        currentSong = null;
+
+        statusElement.textContent =
+            "Error: " + error.message;
+
+    }
+
+}
+
+
+/* =========================================================
+   ESTADÍSTICAS
+========================================================= */
+
+function updateStats() {
+
+    if (!currentSong) return;
+
+
+    
+
+
+    const maxTick =
+        currentSong.notes.length
+            ? Math.max(
+                ...currentSong.notes
+                    .map(n => n.tick)
+            )
+            : 0;
+
+
+    document.getElementById("statTicks")
+        .textContent =
+        maxTick + 1;
+
+
+    
+
+
+    const instruments =
+        new Set(
+            currentSong.notes
+                .map(n => n.instrument)
+        );
+
+
+    document.getElementById("statInstruments")
+        .textContent =
+        instruments.size;
+
+}
+
+
+/* =========================================================
+   NOMBRE DE NOTA
+========================================================= */
+
+function keyToNote(key) {
+
+    /*
+        NBS usa:
+
+        0 = A0
+        1 = A#0
+        2 = B0
+        3 = C1
+        ...
+
+        Por eso utilizamos esta secuencia.
+    */
+
+    const names = [
+        "C",
+        "C#",
+        "D",
+        "D#",
+        "E",
+        "F",
+        "F#",
+        "G",
+        "G#",
+        "A",
+        "A#",
+        "B"
+    ];
+
+
+    /*
+        A0 corresponde a MIDI 21.
+    */
+
+    const midi =
+        key + 21;
+
+
+    const note =
+        names[midi % 12];
+
+
+    const octave =
+        Math.floor(midi / 12) - 1;
+
+
+    return {
+
+        name: note,
+        octave,
+
+        full:
+            note + octave
+
+    };
+
+}
+
+
+/* =========================================================
+   PITCH
+========================================================= */
+
+function getPitch(note) {
+    // NBS key:
+    // A0 = 0
+    // F#3 = 33
+    // F#5 = 57
+
+    const index = note.key - 33;
+
+    // Limitar al rango de los 25 tonos del Note Block
+    if (index < 0) return 1;
+    if (index > 24) return 25;
+
+    // Convertir directamente a 1-25
+    return index + 1;
+}
+
+
+/* =========================================================
+   INSTRUMENTO
+========================================================= */
+
+function getInstrument(note) {
+    const instrumentMap = {
+        0: 16, // Piano
+        1: 1,  // Contrabajo
+        2: 2,  // Bombo
+        3: 3,  // Caja
+        4: 4,  // Click
+        5: 5,  // Guitarra
+        6: 6,  // Flauta
+        7: 7,  // Campana
+        8: 8,  // Carillón
+        9: 9,  // Xilófono
+        10: 10, // Xilófono de hierro
+        11: 11, // Campana de vaca
+        12: 12, // Didgeridoo
+        13: 13, // Bit
+        14: 14, // Banjo
+        15: 15  // Pling
+    };
+    return instrumentMap[note.instrument] ?? note.instrument;
+}
+
+
+/* =========================================================
+   VOLUMEN
+========================================================= */
+
+function getVolume(note) {
+
+    /*
+        NBS usa 0-100.
+        Lo convertimos a 0-1.
+    */
+
+    return note.velocity / 100;
+
+}
+
+
+/* =========================================================
+   FORMATEAR NUMERO
+========================================================= */
+
+function formatNumber(value) {
+
+    if (!Number.isFinite(value)) {
+        return "0";
+    }
+
+
+    /*
+        Evita cosas como:
+
+        1.0000000000000002
+    */
+
+    const rounded =
+        Math.round(
+            value * 10000
+        ) / 10000;
+
+
+    return String(rounded);
+
+}
+
+
+/* =========================================================
+   CREAR OBJETO
+========================================================= */
+
+function createOutputNote(note) {
+
+    const instrument =
+        getInstrument(note);
+
+
+    const pitch =
+        getPitch(note);
+
+
+    let result =
+        `{n:${formatNumber(instrument)},p:${formatNumber(pitch)}`;
+
+    result += "}";
+
+
+    return result;
+
+}
+
+
+/* =========================================================
+   CONVERTIR
+========================================================= */
+
+function convertSong() {
+
+    if (!currentSong) {
+
+        output.value =
+            "Primero carga un archivo .NBS.";
+
+        return;
+
+    }
+
+
+    const notes =
+        currentSong.notes;
+
+
+    if (notes.length === 0) {
+
+        output.value = "[]";
+
+        return;
+
+    }
+
+
+    /*
+        Agrupamos las notas por tick.
+    */
+
+    const byTick =
+        new Map();
+
+
+    for (const note of notes) {
+
+        if (!byTick.has(note.tick)) {
+
+            byTick.set(
+                note.tick,
+                []
+            );
+
+        }
+
+
+        byTick
+            .get(note.tick)
+            .push(note);
+
+    }
+
+
+    const maxTick =
+        Math.max(
+            ...notes.map(n => n.tick)
+        );
+
+
+    const result = [];
+
+
+    for (
+        let tick = 0;
+        tick <= maxTick;
+        tick++
+    ) {
+
+        const tickNotes =
+            byTick.get(tick);
+
+
+        /*
+            Sin notas = silencio.
+        */
+
+        if (
+            !tickNotes ||
+            tickNotes.length === 0
+        ) {
+            result.push("{}");
+            continue;
+
+        }
+
+
+        /*
+            Una sola nota.
+        */
+
+        if (tickNotes.length === 1) {
+
+            result.push(
+                createOutputNote(
+                    tickNotes[0]
+                )
+            );
+
+        }
+
+
+        /*
+            Varias notas simultáneas.
+        */
+
+        else {
+
+            const simultaneous =
+                tickNotes.map(
+                    createOutputNote
+                );
+
+
+            result.push(
+                "[" +
+                simultaneous.join(",") +
+                "]"
+            );
+
+        }
+
+    }
+
+
+    /*
+        Salida compacta.
+    */
+
+    output.value =
+        "[" +
+        result.join(",") +
+        "]";
+
+}
+
+
+/* =========================================================
+   BOTÓN CONVERTIR
+========================================================= */
+
+document.getElementById("convertButton")
+.addEventListener(
+    "click",
+    convertSong
+);
+
+
+/* =========================================================
+   COPIAR
+========================================================= */
+
+document.getElementById("copyButton")
+.addEventListener(
+    "click",
+    async () => {
+
+        if (!output.value) return;
+
+        try {
+
+            await navigator.clipboard.writeText(
+                output.value
+            );
+
+            statusElement.textContent =
+                "Código copiado al portapapeles.";
+
+        } catch {
+
+            output.select();
+
+            document.execCommand("copy");
+
+            statusElement.textContent =
+                "Código copiado.";
+
+        }
+
+    }
+);
+
+
+</script>
+
+</body>
+</html>
